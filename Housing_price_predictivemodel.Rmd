@@ -1,0 +1,479 @@
+---
+title: "ECN142 Project"
+author: "Andrew Huang"
+date: "2025-02-02"
+output: html_document
+---
+
+```{r}
+library(dplyr)
+
+
+census.data <- read.csv("~/Movies/Documents/ECN 142/finalecn142data.csv")
+
+colnames(census.data) <- c(
+  "Year",
+  "City",
+  "Household_strata_for_variance_estimation",
+  "Group_quarters_status",
+  "Total_household_income",
+  "House_value",
+  "Person_number_in_sample_unit",
+  "Person_weight",
+  "Family_Size",
+  "Sex",
+  "Age",
+  "Race",
+  "Years_in_the_United_States",
+  "Employment_status",
+  "Usual_hours_worked_per_week",
+  "Total_family_income"
+)
+```
+
+```{r}
+row <- nrow(census.data)
+
+
+cols <-  ncol(census.data)
+
+
+total_elements <- row * cols
+total_elements
+
+
+```
+
+
+```{r}
+census.data <- census.data %>%
+  select(-Household_strata_for_variance_estimation, -Group_quarters_status, -Person_number_in_sample_unit, -Person_weight)
+
+census.data[] <- lapply(census.data, as.integer)
+census.data[c("Sex", "Race", "Employment_status")] <- lapply(census.data[c("Sex", "Race", "Employment_status")], factor)
+
+head(census.data) 
+
+```
+
+
+
+```{r}
+vars <- c("Age", "Year", "Total_household_income", "Sex", "House_value", "Family_Size", "Years_in_the_United_States", "Employment_status", "Usual_hours_worked_per_week", "Total_family_income")
+pairs(census.data[vars])
+```
+```{r}
+row <- nrow(census.data)
+row
+
+cols <-  ncol(census.data)
+cols
+
+total_elements <- row * cols
+total_elements
+
+
+```
+
+```{r}
+summary(census.data)
+
+
+
+```
+
+
+
+
+
+
+
+
+
+```{r}
+model <- lm(House_value ~ Race + Age + Sex + Family_Size+ Usual_hours_worked_per_week + Total_family_income + I(Total_family_income^2), data = census.data)
+summary(model)
+
+
+new_data <- data.frame(City = 0,
+                      Race = factor(1, levels = levels(census.data$Race)),  # Convert to factor with same levels
+                      Family_Size = 2, 
+                      Usual_hours_worked_per_week = 40,
+                      Total_family_income = 50000)   
+
+
+predicted_price <- predict(model, newdata = new_data)
+predicted_price
+
+```
+
+
+```{r}
+linear_model <- lm(House_value ~ Race + Age + Sex + City + Family_Size + Total_family_income + Years_in_the_United_States + Usual_hours_worked_per_week + Employment_status + Total_household_income, data = census.data)
+
+
+summary(linear_model)
+
+```
+
+
+```{r}
+
+glm_model <- glm(House_value ~ Race + Age + Sex + City + Family_Size + Total_family_income + Years_in_the_United_States + Usual_hours_worked_per_week + Employment_status + Total_household_income, data = census.data, family = poisson())
+
+```
+
+```{r}
+
+k <- 5
+n <- nrow(census.data)
+folds <- sample(1:k, n, replace = TRUE)
+
+linear_mse <- numeric(k)
+glm_mse <- numeric(k)
+
+for(i in 1:k) {
+  test_index <- which(folds == i)
+  train_data <- census.data[-test_index, ]
+  test_data <- census.data[test_index, ]
+  
+
+  linear_prediction <- predict(linear_model, newdata = test_data)
+  glm_prediction <- predict(glm_model, newdata = test_data)
+  
+  linear_mse[i] <- mean((test_data$House_value - linear_prediction)^2)
+  glm_mse[i] <- mean((test_data$House_value - glm_prediction)^2)
+}
+
+mean(linear_mse)
+mean(glm_mse)
+```
+
+```{r}
+library(class)
+
+median_value <- median(census.data$House_value, na.rm = TRUE)
+census.data$House_value_binary <- ifelse(census.data$House_value > median_value, 1, 0)
+
+
+census.data$Race <- as.numeric(census.data$Race)
+census.data$Sex <- as.numeric(census.data$Sex)
+
+train.X <- cbind(census.data$Race, census.data$Age, census.data$Sex, census.data$Family_Size,census.data$Total_family_income)
+test.X <- cbind(census.data$Race, census.data$Age, census.data$Sex, census.data$Family_Size, census.data$Total_family_income)
+train.Direction <- census.data$House_value_binary
+
+accuracy_results <- numeric(4)
+
+for (k_val in 1:4) {
+  knn.pred <- knn(train.X, test.X, train.Direction, k = k_val)
+  accuracy_results[k_val] <- mean(knn.pred == train.Direction)
+}
+
+accuracy_results
+
+
+```
+
+```{r}
+# Load necessary package
+library(glmnet)
+```
+
+
+```{r}
+#lasso
+
+x_train <- model.matrix(House_value ~ Race + Age + Sex + City + Family_Size + Total_family_income + Years_in_the_United_States + Usual_hours_worked_per_week + Employment_status + Total_household_income, data = train_data)[, -1]
+y_train <- train_data$House_value
+
+x_test <- model.matrix(House_value ~ Race + Age + Sex + City + Family_Size + Total_family_income + Years_in_the_United_States + Usual_hours_worked_per_week + Employment_status + Total_household_income, data = test_data)[, -1]
+y_test <- test_data$House_value
+
+cv.out <- cv.glmnet(x_train, y_train, alpha = 1)  # LASSO uses alpha = 1
+bestlam <- cv.out$lambda.min  # Optimal lambda based on cross-validation
+bestlam
+
+
+# Fit the LASSO model using the optimal lambda
+lasso.mod <- glmnet(x_train, y_train, alpha = 1, lambda = bestlam)
+
+# Predict on the test set
+lasso.pred <- predict(lasso.mod, newx = x_test)
+
+# Calculate Mean Squared Error (MSE)
+mse <- mean((lasso.pred - y_test)^2)
+
+# Output the MSE
+mse
+
+```
+
+
+
+
+
+```{r}
+library(glmnet)
+
+cv.out <- cv.glmnet(x_train, y_train, alpha = 1)
+bestlam <- cv.out$lambda.min
+
+lasso.mod <- glmnet(x_train, y_train, alpha = 1, lambda = bestlam)
+lasso.pred <- predict(lasso.mod, newx = x_test)
+
+mse <- mean((lasso.pred - y_test)^2)
+mse
+
+
+
+
+```
+
+
+```{r}
+
+polynomialfit <- lm(House_value ~ poly(as.numeric(Race), 4) + 
+                     poly(Age, 3) + 
+                     poly(Family_Size, 3) + 
+                     poly(Total_family_income, 2) + 
+                     Sex, data = census.data)
+
+predict(polynomialfit, data.frame(Race = c(1, 2, 3, 4), 
+                                   Age = c(25, 30, 45, 50), 
+                                   Family_Size = c(2, 3, 4, 5), 
+                                   Total_family_income = c(50000, 60000, 70000, 80000), 
+                                   Sex = c(0, 1, 0, 1)))
+
+```
+
+```{r}
+#polynomial
+# Number of folds for cross-validation
+cv_folds <- 5  # Set k = 5 for 5-fold cross-validation
+
+# Function to perform cross-validation for polynomial regression (degree 1-5)
+cv_polynomial <- function(data, y, folds = cv_folds) {
+  mse_results <- numeric(5)  # Store MSE for polynomial degrees 1 to 5
+  
+  # Create a random split for cross-validation
+  set.seed(123)  # For reproducibility
+  n <- nrow(data)
+  fold_indices <- sample(rep(1:folds, length.out = n))
+  
+  # Loop through polynomial degrees 1 to 5
+  for (degree in 1:5) {
+    fold_mse <- numeric(folds)  # Store MSE for each fold
+    
+    for (i in 1:folds) {
+      # Split data into training and test sets
+      test_indices <- which(fold_indices == i)
+      train_indices <- setdiff(1:n, test_indices)
+      
+      train_data <- data[train_indices, ]
+      test_data <- data[test_indices, ]
+      train_y <- y[train_indices]
+      test_y <- y[test_indices]
+      
+      # Create polynomial features for training and test data
+      train_poly <- as.data.frame(lapply(train_data, function(x) poly(x, degree = degree, raw = TRUE)))
+      test_poly <- as.data.frame(lapply(test_data, function(x) poly(x, degree = degree, raw = TRUE)))
+      
+      # Fit OLS model
+      ols_model <- lm(train_y ~ ., data = train_poly)
+      
+      # Make predictions and calculate MSE for this fold
+      predictions <- predict(ols_model, newdata = test_poly)
+      fold_mse[i] <- mean((predictions - test_y)^2)
+    }
+    
+    # Store the average MSE for the current degree
+    mse_results[degree] <- mean(fold_mse)
+  }
+  
+  return(mse_results)
+}
+
+# Apply cross-validation to find the best polynomial degree for your data
+mse_results <- cv_polynomial(data = train_data[, c("Race", "Age", "Sex", "City", "Family_Size", "Total_family_income", 
+                                                  "Years_in_the_United_States", "Usual_hours_worked_per_week", 
+                                                  "Employment_status", "Total_household_income")], 
+                             y = train_data$House_value, folds = cv_folds)
+
+# Print the results and identify the best degree
+print(mse_results)
+
+# Best polynomial degree (with the lowest MSE)
+best_degree <- which.min(mse_results)
+cat("The best polynomial degree is:", best_degree)
+
+
+
+```
+
+
+```{r}
+# Set up necessary libraries
+install.packages("tree")
+install.packages("boot")
+library(tree)
+library(boot)
+```
+
+
+```{r}
+# Load necessary library
+library(tree)
+
+# Split the data into training and validation sets (50% split)
+set.seed(123)  # Set a seed for reproducibility
+train <- sample(1:nrow(census.data), nrow(census.data) / 2)
+valid <- -train
+
+# Fit the regression tree on the training set
+tree_model <- tree(House_value ~ Race + Age + Sex + Family_Size + 
+                   Total_family_income + Years_in_the_United_States + 
+                   Usual_hours_worked_per_week + Employment_status + 
+                   Total_household_income, data = census.data, subset = train)
+
+# Cross-validation to determine the best tree size
+cv_tree <- cv.tree(tree_model)
+
+# Plot the cross-validation error to visualize which tree size is best
+plot(cv_tree$size, cv_tree$dev, type = "b", xlab = "Tree Size", ylab = "Deviance")
+
+# Get the best tree size from cross-validation (smallest deviance)
+best_size <- cv_tree$size[which.min(cv_tree$dev)]
+best_size
+
+# Prune the tree based on the best tree size from cross-validation
+prune_model <- prune.tree(tree_model, best = best_size)
+
+# Make predictions using the pruned tree on the validation set
+yhat <- predict(prune_model, newdata = census.data[valid, ])
+
+# Compute Mean Squared Error (MSE) on the validation set
+mse <- mean((yhat - census.data$House_value[valid])^2)
+
+# Print the MSE for the pruned tree
+cat("Test MSE for the pruned tree: ", mse, "\n")
+
+# Plot the pruned tree
+plot(prune_model)
+text(prune_model)
+
+```
+
+
+```{r}
+# Fit a linear model with a 5th degree polynomial for selected predictors
+polynomial_model <- lm(House_value ~ poly(Age, 5) + poly(Family_Size, 5) + poly(Total_household_income, 5) + 
+                        poly(Total_family_income, 5) +
+                        poly(Usual_hours_worked_per_week, 5) + Employment_status + poly(Race, 5) + 
+                        Sex + poly(City,5) + poly(Years_in_the_United_States,5) , data = census.data)
+
+
+                                                 
+                              
+# Example new data for prediction
+new_data <- data.frame(
+  Age = 40,  
+  Family_Size = 4,
+  Total_family_income = 200000,
+  Total_household_income = 200000,
+  Usual_hours_worked_per_week = 40,
+  Years_in_the_United_States = 40,
+  Employment_status = "1",
+  Race = 1,
+  Sex = 1,
+  City = 6310	
+)
+
+# Make predictions on the new data using the polynomial model
+new_predictions <- predict(polynomial_model, newdata = new_data)
+
+# Display the predicted House_value (y_hat) for the new data
+new_predictions
+
+
+
+```
+
+```{r}
+# Convert only the categorical columns to numeric
+census.data[, c("Race", "Sex", "City", "Employment_status")] <- 
+  lapply(census.data[, c("Race", "Sex", "City", "Employment_status")], function(x) as.numeric(as.character(x)))
+
+
+
+
+# Select all predictors for PCA
+x <- census.data[, c("Race", "Age", "Sex", "City", "Family_Size", 
+                     "Total_family_income", "Years_in_the_United_States", 
+                     "Usual_hours_worked_per_week", "Employment_status", 
+                     "Total_household_income")]
+
+# Standardize the predictors and perform PCA
+pr.out <- prcomp(x, scale = TRUE)
+
+# Display summary of PCA
+summary(pr.out)
+
+
+# Scree Plot
+plot(pr.out$sdev^2 / sum(pr.out$sdev^2),
+     ylab = "PVE", 
+     xlab = "Principal Component")
+
+```
+
+```{r}
+# Load necessary library
+library(dplyr)
+
+# Function to perform random train-test split and compute MSE for each cut
+calculate_mse <- function(cuts, data) {
+  # Create binned variables using cut
+  data$Age_bin <- cut(data$Age, breaks = cuts, include.lowest = TRUE)
+  data$Family_size_bin <- cut(data$Family_Size, breaks = cuts, include.lowest = TRUE)
+  data$Total_family_income_bin <- cut(data$Total_family_income, breaks = cuts, include.lowest = TRUE)
+  data$Years_in_the_United_States_bin <- cut(data$Years_in_the_United_States, breaks = cuts, include.lowest = TRUE)
+  data$Usual_hours_worked_per_week_bin <- cut(data$Usual_hours_worked_per_week, breaks = cuts, include.lowest = TRUE)
+  data$Total_household_income_bin <- cut(data$Total_household_income, breaks = cuts, include.lowest = TRUE)
+  
+  # Perform random train-test split (80% training, 20% testing)
+  set.seed(123)  # For reproducibility
+  train_index <- sample(1:nrow(data), size = 0.7 * nrow(data))  # 80% for training
+  train_data <- data[train_index, ]
+  test_data <- data[-train_index, ]
+  
+  # Fit the linear model
+  model <- lm(House_value ~ Race + Sex + City + Employment_status + 
+               Age_bin + Family_size_bin + Total_family_income_bin + 
+               Years_in_the_United_States_bin + Usual_hours_worked_per_week_bin + 
+               Total_household_income_bin, data = train_data)
+  
+  # Make predictions on the test set
+  predictions <- predict(model, newdata = test_data)
+  
+  # Calculate MSE (Mean Squared Error)
+  mse <- mean((predictions - test_data$House_value)^2)
+  
+  # Return the MSE
+  return(mse)
+}
+
+# Test different numbers of cuts (bins)
+cuts_range <- 2:10  # You can change the range as needed
+mse_values <- sapply(cuts_range, function(cuts) calculate_mse(cuts, census.data))
+
+# Output the MSE values for each number of cuts
+mse_values
+best_mse1 <- which.min(mse_values)
+
+```
+
+```{r}
+best_mse1
+```
+
